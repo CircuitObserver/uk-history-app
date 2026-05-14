@@ -3,6 +3,7 @@ from huggingface_hub import InferenceClient
 from fpdf import FPDF
 import random
 import urllib.parse
+import json
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -27,7 +28,6 @@ st.markdown("""
         color: white;
         border: 2px solid #00247d;
     }
-    /* Prevents button jumping by ensuring columns align to the bottom */
     [data-testid="column"] {
         display: flex;
         align-items: flex-end;
@@ -44,20 +44,34 @@ else:
 
 def query_ai(year):
     try:
+        # We ask for a JSON-like structure so we can separate the long text from the short tweet
         response = client.chat.completions.create(
             model="Qwen/Qwen2.5-72B-Instruct",
             messages=[
                 {
                     "role": "system", 
-                    "content": "You are a professional British historian. Provide facts ONLY for the year requested. Format with bold headers."
+                    "content": (
+                        "You are a professional British historian. "
+                        "Provide a detailed summary with bold headers for Politics, Culture, and Economy. "
+                        "ALSO, at the very end of your response, provide a single, catchy, one-sentence "
+                        "summary of the year specifically for a tweet, preceded by the tag [TWEET]."
+                    )
                 },
                 {"role": "user", "content": f"Historical summary for the UK in the year {year} AD."}
             ],
-            max_tokens=1000
+            max_tokens=1100
         )
-        return response.choices[0].message.content
+        full_text = response.choices[0].message.content
+        
+        # Split the response into the Summary and the Tweet snippet
+        if "[TWEET]" in full_text:
+            summary_part, tweet_part = full_text.split("[TWEET]")
+            return summary_part.strip(), tweet_part.strip()
+        else:
+            return full_text, f"I just discovered the history of the UK in {year}!"
+            
     except Exception as e:
-        return f"The AI is busy. Please try again. (Error: {str(e)})"
+        return f"The AI is busy. (Error: {str(e)})", "Error fetching data."
 
 # --- PDF GENERATION ---
 def create_pdf(text, year):
@@ -73,25 +87,22 @@ def create_pdf(text, year):
 
 # --- UI LAYOUT ---
 st.title("🇬🇧 UK Year Researcher")
-st.write("Enter a year or click Random to instantly reveal British history archives.")
+st.write("Reveal the archives of British history with an AI-generated summary and shareable facts.")
 
 if 'target_year' not in st.session_state:
     st.session_state['target_year'] = 2024
 
-# Swapping the order: Input -> Reveal -> Random
 col_input, col_reveal, col_rand = st.columns([3, 1.5, 1.2], vertical_alignment="bottom")
 
 with col_input:
     year_val = st.number_input(
         "Enter Year (1 - 2026):", 
-        min_value=1, 
-        max_value=2026, 
+        min_value=1, max_value=2026, 
         value=st.session_state['target_year'],
         format="%d"
     )
     st.session_state['target_year'] = year_val
 
-# Search trigger flag
 run_search = False
 
 with col_reveal:
@@ -103,10 +114,11 @@ with col_rand:
         st.session_state['target_year'] = random.randint(1066, 2024)
         run_search = True
 
-# --- AI LOGIC (Outside of columns to maintain alignment) ---
 if run_search:
     with st.spinner(f"Consulting archives for {st.session_state['target_year']}..."):
-        st.session_state['summary'] = query_ai(st.session_state['target_year'])
+        summary, tweet_snippet = query_ai(st.session_state['target_year'])
+        st.session_state['summary'] = summary
+        st.session_state['tweet_snippet'] = tweet_snippet
         st.session_state['last_year'] = st.session_state['target_year']
     st.rerun()
 
@@ -121,16 +133,14 @@ if 'summary' in st.session_state:
         with c1:
             try:
                 pdf_data = create_pdf(st.session_state['summary'], st.session_state['last_year'])
-                st.download_button(
-                    label="📥 Download PDF", 
-                    data=bytes(pdf_data), 
-                    file_name=f"UK_History_{st.session_state['last_year']}.pdf",
-                    use_container_width=True
-                )
+                st.download_button(label="📥 Download PDF", data=bytes(pdf_data), file_name=f"UK_{st.session_state['last_year']}.pdf", use_container_width=True)
             except:
-                st.warning("PDF generation failed.")
+                st.warning("PDF too complex.")
+        
         with c2:
-            share_text = f"I discovered UK history for {st.session_state['last_year']}! 🇬🇧"
+            # CUSTOM TWEET LOGIC
+            snippet = st.session_state.get('tweet_snippet', f"Check out UK history in {st.session_state['last_year']}!")
+            share_text = f"{snippet} 🇬🇧\n\nDiscover more here:"
             app_url = "https://uk-history-app-mut9nsgjpmzgfaylrkw68d.streamlit.app/"
             twitter_url = f"https://twitter.com/intent/tweet?text={urllib.parse.quote(share_text)}&url={urllib.parse.quote(app_url)}"
             
@@ -142,6 +152,5 @@ if 'summary' in st.session_state:
                 </a>
             ''', unsafe_allow_html=True)
 
-# --- FOOTER / DISCLAIMER ---
 st.markdown("---")
-st.caption("⚠️ **Disclaimer:** This application uses Artificial Intelligence to generate historical summaries. While we strive for accuracy, AI can occasionally produce incorrect dates or events. Users are encouraged to verify important information with primary historical sources.")
+st.caption("⚠️ **Disclaimer:** This application uses AI to generate historical summaries. Please verify important information with primary sources.")
