@@ -1,54 +1,47 @@
 import streamlit as st
 import requests
 from fpdf import FPDF
+import time
 
 # --- PAGE CONFIG ---
-st.set_page_config(
-    page_title="UK History Researcher",
-    page_icon="🇬🇧",
-    layout="centered"
-)
+st.set_page_config(page_title="UK History Researcher", page_icon="🇬🇧")
 
 # --- API SETUP ---
-# Using a very stable, highly-available model
-API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-v0.1"
-
-try:
-    if "HF_TOKEN" in st.secrets:
-        headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
-    else:
-        st.error("Admin Note: Please add HF_TOKEN to your Streamlit Secrets.")
-        st.stop()
-except Exception as e:
-    st.error(f"Configuration Error: {e}")
-    st.stop()
+# Using a model that is almost always online
+API_URL = "https://api-inference.huggingface.co/models/google/gemma-7b-it"
 
 def query_ai(prompt):
-    # We simplified the prompt format to be more universal
-    payload = {
-        "inputs": f"Summarize the history of the United Kingdom in the year {prompt}. List political and cultural events:",
-        "parameters": {"max_new_tokens": 500, "wait_for_model": True}
-    }
+    if "HF_TOKEN" not in st.secrets:
+        return "Error: HF_TOKEN missing from Secrets."
     
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-        
-        # If the model is not found, we try one backup model automatically
-        if response.status_code == 404:
-            backup_url = "https://api-inference.huggingface.co/models/gpt2"
-            response = requests.post(backup_url, headers=headers, json=payload, timeout=30)
+    headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
+    payload = {
+        "inputs": f"Provide a short summary of the United Kingdom in the year {prompt}. Mention one political and one cultural event.",
+        "parameters": {"max_new_tokens": 500, "return_full_text": False}
+    }
 
-        result = response.json()
-        
-        if isinstance(result, list) and len(result) > 0:
-            return result[0].get('generated_text', "No text generated.")
-        elif isinstance(result, dict) and "error" in result:
-            return f"AI says: {result['error']}"
-        else:
-            return "The AI returned an empty response. Try clicking the button again."
+    # Try up to 3 times if we get a blank response
+    for attempt in range(3):
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
             
-    except Exception as e:
-        return f"Connection Error: {str(e)}"
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, list) and len(result) > 0:
+                    return result[0].get('generated_text', "No text found.")
+                return "AI returned an empty list. Retrying..."
+            
+            elif response.status_code == 503:
+                time.sleep(5) # Wait for model to load
+                continue
+            else:
+                return f"Server Error: {response.status_code}"
+                
+        except Exception:
+            time.sleep(2)
+            continue
+            
+    return "The AI server is currently overloaded. Please try again in 1 minute."
 
 # --- PDF GENERATION ---
 def create_pdf(text, year):
@@ -58,33 +51,24 @@ def create_pdf(text, year):
     pdf.cell(0, 10, f"UK History: {year}", ln=True, align='C')
     pdf.ln(10)
     pdf.set_font("Helvetica", size=11)
-    clean_text = text.encode('latin-1', 'ignore').decode('latin-1')
+    # Filter out characters that FPDF can't handle
+    clean_text = text.encode('ascii', 'ignore').decode('ascii')
     pdf.multi_cell(0, 8, clean_text)
     return pdf.output()
 
 # --- UI ---
-st.title("🇬🇧 UK Year Researcher")
-st.write("Enter a year to get a summary of what happened in the UK.")
-
-target_year = st.number_input("Year:", min_value=1, max_value=2026, value=2024)
+st.title("🇬🇧 UK History Researcher")
+year_input = st.number_input("Enter Year:", min_value=1, max_value=2026, value=2024)
 
 if st.button("Give Info"):
-    with st.spinner("Talking to the AI..."):
-        answer = query_ai(str(target_year))
-        st.session_state['summary_text'] = answer
-        st.session_state['searched_year'] = target_year
+    with st.spinner("Searching..."):
+        answer = query_ai(str(year_input))
+        st.session_state['summary'] = answer
 
-# --- DISPLAY ---
-if 'summary_text' in st.session_state:
+if 'summary' in st.session_state:
     st.markdown("---")
-    output = st.session_state['summary_text']
-    st.write(output)
+    st.write(st.session_state['summary'])
     
-    if "Error" not in output and "AI says" not in output:
-        pdf_output = create_pdf(output, st.session_state['searched_year'])
-        st.download_button(
-            label="Download PDF",
-            data=bytes(pdf_output),
-            file_name=f"UK_{st.session_state['searched_year']}.pdf",
-            mime="application/pdf"
-        )
+    if "Error" not in st.session_state['summary'] and "Server" not in st.session_state['summary']:
+        pdf_data = create_pdf(st.session_state['summary'], year_input)
+        st.download_button("Download PDF", data=bytes(pdf_data), file_name="UK_History.pdf")
