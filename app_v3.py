@@ -4,85 +4,70 @@ from fpdf import FPDF
 
 st.set_page_config(page_title="UK History Researcher", page_icon="🇬🇧")
 
-# --- 2026 ROUTER SETUP ---
-ROUTER_URL = "https://router.huggingface.co/hf-inference/v1/chat/completions"
+# --- THE 2026 STABLE ENDPOINT ---
+# DeepSeek-V3 is the current 'Always On' model for the free Inference Providers
+API_URL = "https://router.huggingface.co/hf-inference/v1/chat/completions"
+MODEL_ID = "deepseek-ai/DeepSeek-V3"
 
-# This list contains the most likely 'Active' models for the 2026 free tier
-CANDIDATE_MODELS = [
-    "meta-llama/Llama-3.2-3B-Instruct",
-    "mistralai/Mistral-7B-Instruct-v0.3",
-    "microsoft/Phi-3-mini-4k-instruct",
-    "Qwen/Qwen2.5-72B-Instruct"
-]
-
-def check_available_models():
-    """Diagnostic tool to find which model actually works with your token."""
+def query_ai(year):
     if "HF_TOKEN" not in st.secrets:
-        return None
+        return "Error: HF_TOKEN missing from Secrets."
     
-    headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
-    working_model = None
-    
-    for model_id in CANDIDATE_MODELS:
-        try:
-            # Send a tiny 'Hello' request to see if the model is supported
-            payload = {
-                "model": model_id,
-                "messages": [{"role": "user", "content": "hi"}],
-                "max_tokens": 5
-            }
-            res = requests.post(ROUTER_URL, headers=headers, json=payload, timeout=10)
-            if res.status_code == 200:
-                working_model = model_id
-                break
-        except:
-            continue
-    return working_model
-
-def query_ai(year, model_to_use):
     headers = {
         "Authorization": f"Bearer {st.secrets['HF_TOKEN']}",
         "Content-Type": "application/json"
     }
+    
     payload = {
-        "model": model_to_use,
+        "model": MODEL_ID,
         "messages": [
-            {"role": "system", "content": "You are a professional British historian."},
-            {"role": "user", "content": f"Summarize the major events in the UK for the year {year}."}
+            {"role": "system", "content": "You are a British history expert."},
+            {"role": "user", "content": f"Summarize the year {year} in the United Kingdom. Focus on Politics, Culture, and Economy."}
         ],
-        "max_tokens": 800
+        "max_tokens": 900,
+        "stream": False
     }
-    response = requests.post(ROUTER_URL, headers=headers, json=payload, timeout=40)
-    if response.status_code == 200:
-        return response.json()['choices'][0]['message']['content']
-    return f"Error {response.status_code}: {response.text}"
+
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+        
+        if response.status_code == 200:
+            return response.json()['choices'][0]['message']['content']
+        else:
+            # If DeepSeek fails, it's likely a token issue or temporary downtime
+            return f"Error {response.status_code}: {response.text}"
+                
+    except Exception as e:
+        return f"Connection Error: {str(e)}"
+
+# --- PDF GENERATION ---
+def create_pdf(text, year):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, f"UK History Report: {year}", ln=True, align='C')
+    pdf.ln(10)
+    pdf.set_font("Helvetica", size=11)
+    # Removing special characters to prevent PDF crashes
+    clean_text = text.encode('ascii', 'ignore').decode('ascii')
+    pdf.multi_cell(0, 8, clean_text)
+    return pdf.output()
 
 # --- UI ---
 st.title("🇬🇧 UK History Researcher")
+st.write("Enter a year to receive a summary of UK historical events.")
 
-# SIDEBAR DIAGNOSTICS
-with st.sidebar:
-    st.header("⚙️ System Status")
-    if st.button("Run System Check"):
-        with st.spinner("Finding a working model..."):
-            found = check_available_models()
-            if found:
-                st.success(f"Connected! Using: {found}")
-                st.session_state['active_model'] = found
-            else:
-                st.error("No compatible models found. Check your token permissions!")
-
-# MAIN APP
 year_input = st.number_input("Enter Year:", min_value=1, max_value=2026, value=2024)
 
 if st.button("Give Info"):
-    # Default to a model if they haven't run the check
-    model_to_use = st.session_state.get('active_model', "meta-llama/Llama-3.2-3B-Instruct")
-    
-    with st.spinner(f"Using {model_to_use}..."):
-        answer = query_ai(year_input, model_to_use)
+    with st.spinner(f"Requesting data for {year_input}..."):
+        answer = query_ai(year_input)
         st.session_state['summary'] = answer
 
 if 'summary' in st.session_state:
     st.markdown("---")
     st.markdown(st.session_state['summary'])
+    
+    if len(st.session_state['summary']) > 50 and "Error" not in st.session_state['summary']:
+        pdf_data = create_pdf(st.session_state['summary'], year_input)
+        st.download_button("📥 Download PDF", data=bytes(pdf_data), file_name=f"UK_{year_input}.pdf")
