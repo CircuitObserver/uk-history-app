@@ -14,7 +14,6 @@ st.set_page_config(
 # --- CUSTOM BRITISH STYLING ---
 st.markdown("""
     <style>
-    /* Main Button Styling */
     .stButton>button {
         background-color: #00247d;
         color: white;
@@ -28,7 +27,6 @@ st.markdown("""
         color: white;
         border: 2px solid #00247d;
     }
-    /* Input box styling */
     .stNumberInput div div input {
         border-radius: 10px;
     }
@@ -39,12 +37,11 @@ st.markdown("""
 if "HF_TOKEN" in st.secrets:
     client = InferenceClient(api_key=st.secrets["HF_TOKEN"])
 else:
-    st.error("Missing HF_TOKEN in Streamlit Secrets. Please add it to continue.")
+    st.error("Missing HF_TOKEN in Streamlit Secrets.")
     st.stop()
 
 def query_ai(year):
     try:
-        # Fenced prompt to handle small years (like 200) and prevent prompt injection
         response = client.chat.completions.create(
             model="Qwen/Qwen2.5-72B-Instruct",
             messages=[
@@ -52,18 +49,18 @@ def query_ai(year):
                     "role": "system", 
                     "content": (
                         "You are a professional British historian. "
-                        "Only provide facts about the United Kingdom for the specific year requested. "
+                        "Provide facts ONLY for the specific year requested. "
                         "If the user asks for a year like 200, do not assume they mean 2000. "
-                        "Format your response clearly with bold headers for Politics, Culture, and Economy."
+                        "Format with bold headers for Politics, Culture, and Economy."
                     )
                 },
-                {"role": "user", "content": f"The year is exactly {year} AD. Provide a historical summary for the UK."}
+                {"role": "user", "content": f"Provide a historical summary for the UK in the year {year} AD."}
             ],
             max_tokens=1000
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"The AI is currently busy or waking up. Please try again in a few seconds. (Error: {str(e)})"
+        return f"The AI is busy. Please try again. (Error: {str(e)})"
 
 # --- PDF GENERATION ---
 def create_pdf(text, year):
@@ -73,7 +70,6 @@ def create_pdf(text, year):
     pdf.cell(0, 10, f"UK History Report: {year}", ln=True, align='C')
     pdf.ln(10)
     pdf.set_font("Helvetica", size=11)
-    # Removing non-ASCII characters for basic FPDF compatibility
     clean_text = text.encode('ascii', 'ignore').decode('ascii')
     pdf.multi_cell(0, 8, clean_text)
     return pdf.output()
@@ -82,30 +78,35 @@ def create_pdf(text, year):
 st.title("🇬🇧 UK Year Researcher")
 st.write("Enter a specific year or grab a random one to reveal the archives of British history.")
 
-# FEATURE: Professional One-Line Layout with Vertical Alignment
+# Initialize the year in session state if it doesn't exist
+if 'year_input_key' not in st.session_state:
+    st.session_state['year_input_key'] = 2024
+
 col_input, col_rand, col_reveal = st.columns([3, 1.2, 1.5], vertical_alignment="bottom")
 
 with col_input:
-    # We use a session state key for the value so the randomizer can update it
-    year_input = st.number_input(
+    # We bind the value to session_state['year_input_key']
+    year_val = st.number_input(
         "Enter Year (1 - 2026):", 
         min_value=1, 
         max_value=2026, 
-        value=st.session_state.get('display_year', 2024),
+        value=st.session_state['year_input_key'],
         format="%d",
-        key="year_box"
+        key="actual_year_input" # Static key for the widget
     )
 
 with col_rand:
     if st.button("🎲 Random", use_container_width=True):
-        st.session_state['display_year'] = random.randint(1, 2024)
+        # Update the state of the widget directly
+        new_year = random.randint(1066, 2024)
+        st.session_state['actual_year_input'] = new_year
         st.rerun()
 
 with col_reveal:
     reveal_clicked = st.button("📜 Reveal History", use_container_width=True)
 
-# Final variable to use for the AI query
-current_year = st.session_state.get('year_box', year_input)
+# Use the widget's current state value
+current_year = st.session_state['actual_year_input']
 
 if reveal_clicked:
     with st.spinner(f"Consulting the archives for {current_year}..."):
@@ -119,32 +120,24 @@ if 'summary' in st.session_state:
     st.info(f"### 🏛️ Historical Summary for Year {st.session_state['last_year']}")
     st.markdown(st.session_state['summary'])
     
-    # Show actions if content is substantial
     if len(st.session_state['summary']) > 100:
         c1, c2 = st.columns(2)
-        
         with c1:
             try:
                 pdf_data = create_pdf(st.session_state['summary'], st.session_state['last_year'])
                 st.download_button(
-                    label="📥 Download as PDF", 
+                    label="📥 Download PDF", 
                     data=bytes(pdf_data), 
                     file_name=f"UK_History_{st.session_state['last_year']}.pdf",
                     use_container_width=True
                 )
             except:
-                st.warning("PDF too complex to generate, please copy text.")
-        
+                st.warning("PDF too complex to generate.")
         with c2:
-            # FEATURE: Twitter Share Button
-            share_text = f"I just discovered what happened in the UK in the year {st.session_state['last_year']} using this AI History tool! 🇬🇧"
-            # Your specific app URL
+            share_text = f"I just discovered what happened in the UK in {st.session_state['last_year']} using this AI tool! 🇬🇧"
             app_url = "https://uk-history-app-mut9nsgjpmzgfaylrkw68d.streamlit.app/"
-            encoded_text = urllib.parse.quote(share_text)
-            encoded_url = urllib.parse.quote(app_url)
-            twitter_url = f"https://twitter.com/intent/tweet?text={encoded_text}&url={encoded_url}"
+            twitter_url = f"https://twitter.com/intent/tweet?text={urllib.parse.quote(share_text)}&url={urllib.parse.quote(app_url)}"
             
-            # HTML Twitter Button
             st.markdown(f'''
                 <a href="{twitter_url}" target="_blank" style="text-decoration: none;">
                     <button style="width:100%; height:45px; border-radius:10px; background-color:#1DA1F2; color:white; border:none; cursor:pointer; font-weight:bold;">
