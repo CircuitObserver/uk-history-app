@@ -1,31 +1,32 @@
 import streamlit as st
 import requests
 from fpdf import FPDF
-import time
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="UK History Researcher", page_icon="🇬🇧")
 
-# --- API SETUP ---
-# Mistral is very reliable and NOT gated (no 404/Accept License needed)
-API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+# --- NEW 2026 ROUTER SETUP ---
+# Instead of a specific model, we point to the Router and specify the model in the headers/body
+API_URL = "https://router.huggingface.co/hf-inference/v1/chat/completions"
 
 def query_ai(year):
     if "HF_TOKEN" not in st.secrets:
-        return "Error: HF_TOKEN missing from Secrets."
+        return "Error: HF_TOKEN missing from Streamlit Secrets."
     
-    headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
+    headers = {
+        "Authorization": f"Bearer {st.secrets['HF_TOKEN']}",
+        "Content-Type": "application/json"
+    }
     
-    # Mistral uses a specific [INST] format for best results
-    prompt = f"[INST] Provide a summary of the United Kingdom in the year {year}. Include major political, social, and cultural events. [/INST]"
-    
+    # We use the 'Chat' format which is more reliable in 2026
     payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 700, 
-            "temperature": 0.7,
-            "wait_for_model": True  # Tells HF to wait if model is loading
-        }
+        "model": "mistralai/Mistral-7B-Instruct-v0.3",
+        "messages": [
+            {"role": "system", "content": "You are a professional British historian."},
+            {"role": "user", "content": f"Summarize the major events in the UK for the year {year}. Include Politics, Culture, and Economy."}
+        ],
+        "max_tokens": 800,
+        "temperature": 0.7
     }
 
     try:
@@ -33,13 +34,13 @@ def query_ai(year):
         
         if response.status_code == 200:
             result = response.json()
-            # Handle list vs dict return types
-            if isinstance(result, list) and len(result) > 0:
-                return result[0].get('generated_text', "No text found.")
-            return str(result)
+            # The Router returns a standard 'chat' response
+            return result['choices'][0]['message']['content']
         
+        elif response.status_code == 404:
+            return "Error 404: The Router couldn't find the model. Please check your token permissions."
         elif response.status_code == 503:
-            return "The AI is currently 'waking up'. Please wait 20 seconds and try again."
+            return "The AI is currently 'waking up'. Please wait 20 seconds and click 'Give Info' again."
         else:
             return f"Error: {response.status_code} - {response.text}"
                 
@@ -54,31 +55,27 @@ def create_pdf(text, year):
     pdf.cell(0, 10, f"UK History Report: {year}", ln=True, align='C')
     pdf.ln(10)
     pdf.set_font("Helvetica", size=11)
-    # Filter out characters that FPDF (Latin-1) can't handle
+    # Clean for PDF
     clean_text = text.encode('ascii', 'ignore').decode('ascii')
     pdf.multi_cell(0, 8, clean_text)
     return pdf.output()
 
 # --- UI ---
 st.title("🇬🇧 UK History Researcher")
-st.write("Enter a year to receive an AI-powered summary of events in the UK.")
+st.write("Enter a year to receive a summary of UK historical events.")
 
-year_input = st.number_input("Enter Year (e.g., 1945):", min_value=1, max_value=2026, value=2024)
+year_input = st.number_input("Enter Year:", min_value=1, max_value=2026, value=2024)
 
 if st.button("Give Info"):
-    with st.spinner(f"Researching {year_input}..."):
+    with st.spinner(f"Querying the 2026 Router for {year_input}..."):
         answer = query_ai(year_input)
-        # Mistral often includes the prompt in the output; let's clean it if so
-        if "[/INST]" in answer:
-            answer = answer.split("[/INST]")[-1].strip()
         st.session_state['summary'] = answer
 
 if 'summary' in st.session_state:
     st.markdown("---")
     st.markdown(st.session_state['summary'])
     
-    # Only show PDF button if response is valid
-    if "Error" not in st.session_state['summary'] and len(st.session_state['summary']) > 50:
+    if "Error" not in st.session_state['summary'] and len(st.session_state['summary']) > 20:
         pdf_data = create_pdf(st.session_state['summary'], year_input)
         st.download_button(
             label="📥 Download Research as PDF", 
