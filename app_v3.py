@@ -50,7 +50,6 @@ def query_ai(year):
                     "content": (
                         "You are a professional British historian. "
                         "Provide facts ONLY for the specific year requested. "
-                        "If the user asks for a year like 200, do not assume they mean 2000. "
                         "Format with bold headers for Politics, Culture, and Economy."
                     )
                 },
@@ -76,17 +75,15 @@ def create_pdf(text, year):
 
 # --- UI LAYOUT ---
 st.title("🇬🇧 UK Year Researcher")
-st.write("Enter a specific year or grab a random one to reveal the archives of British history.")
+st.write("Enter a year or click Random to instantly reveal British history archives.")
 
-# 1. Initialize our "Source of Truth" variable
+# Initialize source of truth
 if 'target_year' not in st.session_state:
     st.session_state['target_year'] = 2024
 
 col_input, col_rand, col_reveal = st.columns([3, 1.2, 1.5], vertical_alignment="bottom")
 
 with col_input:
-    # 2. IMPORTANT: We do NOT use the 'key' parameter here to avoid the Exception.
-    # Instead, we use 'on_change' to update our source of truth if the user types manually.
     year_val = st.number_input(
         "Enter Year (1 - 2026):", 
         min_value=1, 
@@ -94,23 +91,24 @@ with col_input:
         value=st.session_state['target_year'],
         format="%d"
     )
-    # Update target_year if the widget changes
     st.session_state['target_year'] = year_val
 
 with col_rand:
     if st.button("🎲 Random", use_container_width=True):
-        # 3. Now we can safely change target_year and rerun
-        st.session_state['target_year'] = random.randint(1066, 2024)
+        # 1. Set new year
+        new_year = random.randint(1066, 2024)
+        st.session_state['target_year'] = new_year
+        # 2. Automatically run the AI query
+        with st.spinner(f"Surprise! Researching {new_year}..."):
+            st.session_state['summary'] = query_ai(new_year)
+            st.session_state['last_year'] = new_year
         st.rerun()
 
 with col_reveal:
-    reveal_clicked = st.button("📜 Reveal History", use_container_width=True)
-
-if reveal_clicked:
-    with st.spinner(f"Consulting the archives for {st.session_state['target_year']}..."):
-        answer = query_ai(st.session_state['target_year'])
-        st.session_state['summary'] = answer
-        st.session_state['last_year'] = st.session_state['target_year']
+    if st.button("📜 Reveal History", use_container_width=True):
+        with st.spinner(f"Consulting archives for {st.session_state['target_year']}..."):
+            st.session_state['summary'] = query_ai(st.session_state['target_year'])
+            st.session_state['last_year'] = st.session_state['target_year']
 
 # --- RESULTS DISPLAY ---
 if 'summary' in st.session_state:
@@ -132,13 +130,13 @@ if 'summary' in st.session_state:
             except:
                 st.warning("PDF too complex to generate.")
         with c2:
-            share_text = f"I just discovered what happened in the UK in {st.session_state['last_year']} using this AI tool! 🇬🇧"
+            share_text = f"I just discovered what happened in the UK in {st.session_state['last_year']}! 🇬🇧"
             app_url = "https://uk-history-app-mut9nsgjpmzgfaylrkw68d.streamlit.app/"
             twitter_url = f"https://twitter.com/intent/tweet?text={urllib.parse.quote(share_text)}&url={urllib.parse.quote(app_url)}"
             
             st.markdown(f'''
                 <a href="{twitter_url}" target="_blank" style="text-decoration: none;">
-                    <button style="button; width:100%; height:45px; border-radius:10px; background-color:#1DA1F2; color:white; border:none; cursor:pointer; font-weight:bold;">
+                    <button style="width:100%; height:45px; border-radius:10px; background-color:#1DA1F2; color:white; border:none; cursor:pointer; font-weight:bold;">
                         🐦 Share on Twitter
                     </button>
                 </a>
