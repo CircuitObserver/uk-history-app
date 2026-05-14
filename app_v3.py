@@ -5,8 +5,7 @@ from fpdf import FPDF
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="UK History Researcher", page_icon="🇬🇧")
 
-# --- NEW 2026 ROUTER SETUP ---
-# Instead of a specific model, we point to the Router and specify the model in the headers/body
+# --- 2026 ROUTER ENDPOINT ---
 API_URL = "https://router.huggingface.co/hf-inference/v1/chat/completions"
 
 def query_ai(year):
@@ -18,14 +17,14 @@ def query_ai(year):
         "Content-Type": "application/json"
     }
     
-    # We use the 'Chat' format which is more reliable in 2026
+    # Using Qwen 2.5 - It is currently the most compatible model for the Router
     payload = {
-        "model": "mistralai/Mistral-7B-Instruct-v0.3",
+        "model": "Qwen/Qwen2.5-72B-Instruct", 
         "messages": [
-            {"role": "system", "content": "You are a professional British historian."},
-            {"role": "user", "content": f"Summarize the major events in the UK for the year {year}. Include Politics, Culture, and Economy."}
+            {"role": "system", "content": "You are a professional British historian providing concise summaries."},
+            {"role": "user", "content": f"Summarize the major events in the UK for the year {year}. Focus on Politics, Culture, and Economy."}
         ],
-        "max_tokens": 800,
+        "max_tokens": 1000,
         "temperature": 0.7
     }
 
@@ -34,13 +33,13 @@ def query_ai(year):
         
         if response.status_code == 200:
             result = response.json()
-            # The Router returns a standard 'chat' response
             return result['choices'][0]['message']['content']
         
-        elif response.status_code == 404:
-            return "Error 404: The Router couldn't find the model. Please check your token permissions."
+        # If Qwen fails, this error handling will tell us exactly why
+        elif response.status_code == 400:
+            return f"Error 400: The server didn't like the request. Details: {response.text}"
         elif response.status_code == 503:
-            return "The AI is currently 'waking up'. Please wait 20 seconds and click 'Give Info' again."
+            return "The AI is currently 'waking up'. Please wait 30 seconds and click 'Give Info' again."
         else:
             return f"Error: {response.status_code} - {response.text}"
                 
@@ -55,7 +54,7 @@ def create_pdf(text, year):
     pdf.cell(0, 10, f"UK History Report: {year}", ln=True, align='C')
     pdf.ln(10)
     pdf.set_font("Helvetica", size=11)
-    # Clean for PDF
+    # Filter text for PDF
     clean_text = text.encode('ascii', 'ignore').decode('ascii')
     pdf.multi_cell(0, 8, clean_text)
     return pdf.output()
@@ -67,7 +66,7 @@ st.write("Enter a year to receive a summary of UK historical events.")
 year_input = st.number_input("Enter Year:", min_value=1, max_value=2026, value=2024)
 
 if st.button("Give Info"):
-    with st.spinner(f"Querying the 2026 Router for {year_input}..."):
+    with st.spinner(f"Requesting data for {year_input}..."):
         answer = query_ai(year_input)
         st.session_state['summary'] = answer
 
@@ -75,7 +74,8 @@ if 'summary' in st.session_state:
     st.markdown("---")
     st.markdown(st.session_state['summary'])
     
-    if "Error" not in st.session_state['summary'] and len(st.session_state['summary']) > 20:
+    # Check if the summary looks like actual content before showing PDF
+    if len(st.session_state['summary']) > 50 and "Error" not in st.session_state['summary']:
         pdf_data = create_pdf(st.session_state['summary'], year_input)
         st.download_button(
             label="📥 Download Research as PDF", 
