@@ -17,15 +17,15 @@ def query_ai(year):
         "Content-Type": "application/json"
     }
     
-    # Using Qwen 2.5 - It is currently the most compatible model for the Router
+    # Llama-3.3-70B is the current high-stability model for the 2026 Router
     payload = {
-        "model": "Qwen/Qwen2.5-72B-Instruct", 
+        "model": "meta-llama/Llama-3.3-70B-Instruct", 
         "messages": [
-            {"role": "system", "content": "You are a professional British historian providing concise summaries."},
-            {"role": "user", "content": f"Summarize the major events in the UK for the year {year}. Focus on Politics, Culture, and Economy."}
+            {"role": "system", "content": "You are a professional British historian. Summarize the year in the UK with sections for Politics, Culture, and Economy."},
+            {"role": "user", "content": f"What happened in the United Kingdom in {year}?"}
         ],
         "max_tokens": 1000,
-        "temperature": 0.7
+        "temperature": 0.5
     }
 
     try:
@@ -34,14 +34,9 @@ def query_ai(year):
         if response.status_code == 200:
             result = response.json()
             return result['choices'][0]['message']['content']
-        
-        # If Qwen fails, this error handling will tell us exactly why
-        elif response.status_code == 400:
-            return f"Error 400: The server didn't like the request. Details: {response.text}"
-        elif response.status_code == 503:
-            return "The AI is currently 'waking up'. Please wait 30 seconds and click 'Give Info' again."
         else:
-            return f"Error: {response.status_code} - {response.text}"
+            # This will show you exactly why it failed without crashing
+            return f"Error {response.status_code}: {response.text}"
                 
     except Exception as e:
         return f"Connection Error: {str(e)}"
@@ -54,7 +49,7 @@ def create_pdf(text, year):
     pdf.cell(0, 10, f"UK History Report: {year}", ln=True, align='C')
     pdf.ln(10)
     pdf.set_font("Helvetica", size=11)
-    # Filter text for PDF
+    # Strict cleaning for PDF (removing non-standard characters)
     clean_text = text.encode('ascii', 'ignore').decode('ascii')
     pdf.multi_cell(0, 8, clean_text)
     return pdf.output()
@@ -72,14 +67,19 @@ if st.button("Give Info"):
 
 if 'summary' in st.session_state:
     st.markdown("---")
+    
+    # Display the result
     st.markdown(st.session_state['summary'])
     
-    # Check if the summary looks like actual content before showing PDF
-    if len(st.session_state['summary']) > 50 and "Error" not in st.session_state['summary']:
-        pdf_data = create_pdf(st.session_state['summary'], year_input)
-        st.download_button(
-            label="📥 Download Research as PDF", 
-            data=bytes(pdf_data), 
-            file_name=f"UK_History_{year_input}.pdf",
-            mime="application/pdf"
-        )
+    # Only show PDF button if the response is actually content
+    if len(st.session_state['summary']) > 60 and "Error" not in st.session_state['summary']:
+        try:
+            pdf_data = create_pdf(st.session_state['summary'], year_input)
+            st.download_button(
+                label="📥 Download Research as PDF", 
+                data=bytes(pdf_data), 
+                file_name=f"UK_History_{year_input}.pdf",
+                mime="application/pdf"
+            )
+        except Exception as e:
+            st.error(f"PDF Error: {e}")
