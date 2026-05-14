@@ -2,84 +2,87 @@ import streamlit as st
 import requests
 from fpdf import FPDF
 
-# --- PAGE CONFIG ---
 st.set_page_config(page_title="UK History Researcher", page_icon="🇬🇧")
 
-# --- 2026 ROUTER ENDPOINT ---
-API_URL = "https://router.huggingface.co/hf-inference/v1/chat/completions"
+# --- 2026 ROUTER SETUP ---
+ROUTER_URL = "https://router.huggingface.co/hf-inference/v1/chat/completions"
 
-def query_ai(year):
+# This list contains the most likely 'Active' models for the 2026 free tier
+CANDIDATE_MODELS = [
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "microsoft/Phi-3-mini-4k-instruct",
+    "Qwen/Qwen2.5-72B-Instruct"
+]
+
+def check_available_models():
+    """Diagnostic tool to find which model actually works with your token."""
     if "HF_TOKEN" not in st.secrets:
-        return "Error: HF_TOKEN missing from Streamlit Secrets."
+        return None
     
+    headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
+    working_model = None
+    
+    for model_id in CANDIDATE_MODELS:
+        try:
+            # Send a tiny 'Hello' request to see if the model is supported
+            payload = {
+                "model": model_id,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 5
+            }
+            res = requests.post(ROUTER_URL, headers=headers, json=payload, timeout=10)
+            if res.status_code == 200:
+                working_model = model_id
+                break
+        except:
+            continue
+    return working_model
+
+def query_ai(year, model_to_use):
     headers = {
         "Authorization": f"Bearer {st.secrets['HF_TOKEN']}",
         "Content-Type": "application/json"
     }
-    
-    # Llama-3.3-70B is the current high-stability model for the 2026 Router
     payload = {
-        "model": "meta-llama/Llama-3.3-70B-Instruct", 
+        "model": model_to_use,
         "messages": [
-            {"role": "system", "content": "You are a professional British historian. Summarize the year in the UK with sections for Politics, Culture, and Economy."},
-            {"role": "user", "content": f"What happened in the United Kingdom in {year}?"}
+            {"role": "system", "content": "You are a professional British historian."},
+            {"role": "user", "content": f"Summarize the major events in the UK for the year {year}."}
         ],
-        "max_tokens": 1000,
-        "temperature": 0.5
+        "max_tokens": 800
     }
-
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=40)
-        
-        if response.status_code == 200:
-            result = response.json()
-            return result['choices'][0]['message']['content']
-        else:
-            # This will show you exactly why it failed without crashing
-            return f"Error {response.status_code}: {response.text}"
-                
-    except Exception as e:
-        return f"Connection Error: {str(e)}"
-
-# --- PDF GENERATION ---
-def create_pdf(text, year):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, f"UK History Report: {year}", ln=True, align='C')
-    pdf.ln(10)
-    pdf.set_font("Helvetica", size=11)
-    # Strict cleaning for PDF (removing non-standard characters)
-    clean_text = text.encode('ascii', 'ignore').decode('ascii')
-    pdf.multi_cell(0, 8, clean_text)
-    return pdf.output()
+    response = requests.post(ROUTER_URL, headers=headers, json=payload, timeout=40)
+    if response.status_code == 200:
+        return response.json()['choices'][0]['message']['content']
+    return f"Error {response.status_code}: {response.text}"
 
 # --- UI ---
 st.title("🇬🇧 UK History Researcher")
-st.write("Enter a year to receive a summary of UK historical events.")
 
+# SIDEBAR DIAGNOSTICS
+with st.sidebar:
+    st.header("⚙️ System Status")
+    if st.button("Run System Check"):
+        with st.spinner("Finding a working model..."):
+            found = check_available_models()
+            if found:
+                st.success(f"Connected! Using: {found}")
+                st.session_state['active_model'] = found
+            else:
+                st.error("No compatible models found. Check your token permissions!")
+
+# MAIN APP
 year_input = st.number_input("Enter Year:", min_value=1, max_value=2026, value=2024)
 
 if st.button("Give Info"):
-    with st.spinner(f"Requesting data for {year_input}..."):
-        answer = query_ai(year_input)
+    # Default to a model if they haven't run the check
+    model_to_use = st.session_state.get('active_model', "meta-llama/Llama-3.2-3B-Instruct")
+    
+    with st.spinner(f"Using {model_to_use}..."):
+        answer = query_ai(year_input, model_to_use)
         st.session_state['summary'] = answer
 
 if 'summary' in st.session_state:
     st.markdown("---")
-    
-    # Display the result
     st.markdown(st.session_state['summary'])
-    
-    # Only show PDF button if the response is actually content
-    if len(st.session_state['summary']) > 60 and "Error" not in st.session_state['summary']:
-        try:
-            pdf_data = create_pdf(st.session_state['summary'], year_input)
-            st.download_button(
-                label="📥 Download Research as PDF", 
-                data=bytes(pdf_data), 
-                file_name=f"UK_History_{year_input}.pdf",
-                mime="application/pdf"
-            )
-        except Exception as e:
-            st.error(f"PDF Error: {e}")
