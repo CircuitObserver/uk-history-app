@@ -27,7 +27,7 @@ st.markdown("""
         color: white;
         border: 2px solid #00247d;
     }
-    /* Fixed height for the column area to prevent jumping */
+    /* Prevents button jumping by ensuring columns align to the bottom */
     [data-testid="column"] {
         display: flex;
         align-items: flex-end;
@@ -78,8 +78,8 @@ st.write("Enter a year or click Random to instantly reveal British history archi
 if 'target_year' not in st.session_state:
     st.session_state['target_year'] = 2024
 
-# Create columns for the interface
-col_input, col_rand, col_reveal = st.columns([3, 1.2, 1.5], vertical_alignment="bottom")
+# Swapping the order: Input -> Reveal -> Random
+col_input, col_reveal, col_rand = st.columns([3, 1.5, 1.2], vertical_alignment="bottom")
 
 with col_input:
     year_val = st.number_input(
@@ -91,19 +91,19 @@ with col_input:
     )
     st.session_state['target_year'] = year_val
 
-# Flags to trigger AI search outside the column block
+# Search trigger flag
 run_search = False
+
+with col_reveal:
+    if st.button("📜 Reveal", use_container_width=True):
+        run_search = True
 
 with col_rand:
     if st.button("🎲 Random", use_container_width=True):
         st.session_state['target_year'] = random.randint(1066, 2024)
         run_search = True
 
-with col_reveal:
-    if st.button("📜 Reveal", use_container_width=True):
-        run_search = True
-
-# --- AI LOGIC (OUTSIDE COLUMNS TO PREVENT MISALIGNMENT) ---
+# --- AI LOGIC (Outside of columns to maintain alignment) ---
 if run_search:
     with st.spinner(f"Consulting archives for {st.session_state['target_year']}..."):
         st.session_state['summary'] = query_ai(st.session_state['target_year'])
@@ -121,14 +121,26 @@ if 'summary' in st.session_state:
         with c1:
             try:
                 pdf_data = create_pdf(st.session_state['summary'], st.session_state['last_year'])
-                st.download_button("📥 Download PDF", data=bytes(pdf_data), file_name=f"UK_{st.session_state['last_year']}.pdf", use_container_width=True)
+                st.download_button(
+                    label="📥 Download PDF", 
+                    data=bytes(pdf_data), 
+                    file_name=f"UK_History_{st.session_state['last_year']}.pdf",
+                    use_container_width=True
+                )
             except:
-                st.warning("PDF too complex.")
+                st.warning("PDF generation failed.")
         with c2:
             share_text = f"I discovered UK history for {st.session_state['last_year']}! 🇬🇧"
             app_url = "https://uk-history-app-mut9nsgjpmzgfaylrkw68d.streamlit.app/"
             twitter_url = f"https://twitter.com/intent/tweet?text={urllib.parse.quote(share_text)}&url={urllib.parse.quote(app_url)}"
-            st.markdown(f'<a href="{twitter_url}" target="_blank"><button style="width:100%; height:45px; border-radius:10px; background-color:#1DA1F2; color:white; border:none; cursor:pointer; font-weight:bold;">🐦 Tweet Result</button></a>', unsafe_allow_html=True)
+            
+            st.markdown(f'''
+                <a href="{twitter_url}" target="_blank" style="text-decoration: none;">
+                    <button style="width:100%; height:45px; border-radius:10px; background-color:#1DA1F2; color:white; border:none; cursor:pointer; font-weight:bold;">
+                        🐦 Tweet Result
+                    </button>
+                </a>
+            ''', unsafe_allow_html=True)
 
 # --- FOOTER / DISCLAIMER ---
 st.markdown("---")
