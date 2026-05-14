@@ -78,41 +78,39 @@ def create_pdf(text, year):
 st.title("🇬🇧 UK Year Researcher")
 st.write("Enter a specific year or grab a random one to reveal the archives of British history.")
 
-# Initialize the year in session state if it doesn't exist
-if 'year_input_key' not in st.session_state:
-    st.session_state['year_input_key'] = 2024
+# 1. Initialize our "Source of Truth" variable
+if 'target_year' not in st.session_state:
+    st.session_state['target_year'] = 2024
 
 col_input, col_rand, col_reveal = st.columns([3, 1.2, 1.5], vertical_alignment="bottom")
 
 with col_input:
-    # We bind the value to session_state['year_input_key']
+    # 2. IMPORTANT: We do NOT use the 'key' parameter here to avoid the Exception.
+    # Instead, we use 'on_change' to update our source of truth if the user types manually.
     year_val = st.number_input(
         "Enter Year (1 - 2026):", 
         min_value=1, 
         max_value=2026, 
-        value=st.session_state['year_input_key'],
-        format="%d",
-        key="actual_year_input" # Static key for the widget
+        value=st.session_state['target_year'],
+        format="%d"
     )
+    # Update target_year if the widget changes
+    st.session_state['target_year'] = year_val
 
 with col_rand:
     if st.button("🎲 Random", use_container_width=True):
-        # Update the state of the widget directly
-        new_year = random.randint(1066, 2024)
-        st.session_state['actual_year_input'] = new_year
+        # 3. Now we can safely change target_year and rerun
+        st.session_state['target_year'] = random.randint(1066, 2024)
         st.rerun()
 
 with col_reveal:
     reveal_clicked = st.button("📜 Reveal History", use_container_width=True)
 
-# Use the widget's current state value
-current_year = st.session_state['actual_year_input']
-
 if reveal_clicked:
-    with st.spinner(f"Consulting the archives for {current_year}..."):
-        answer = query_ai(current_year)
+    with st.spinner(f"Consulting the archives for {st.session_state['target_year']}..."):
+        answer = query_ai(st.session_state['target_year'])
         st.session_state['summary'] = answer
-        st.session_state['last_year'] = current_year
+        st.session_state['last_year'] = st.session_state['target_year']
 
 # --- RESULTS DISPLAY ---
 if 'summary' in st.session_state:
@@ -140,7 +138,7 @@ if 'summary' in st.session_state:
             
             st.markdown(f'''
                 <a href="{twitter_url}" target="_blank" style="text-decoration: none;">
-                    <button style="width:100%; height:45px; border-radius:10px; background-color:#1DA1F2; color:white; border:none; cursor:pointer; font-weight:bold;">
+                    <button style="button; width:100%; height:45px; border-radius:10px; background-color:#1DA1F2; color:white; border:none; cursor:pointer; font-weight:bold;">
                         🐦 Share on Twitter
                     </button>
                 </a>
