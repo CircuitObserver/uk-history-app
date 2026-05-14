@@ -95,8 +95,8 @@ def create_pdf(text, year, era):
     return pdf.output()
 
 # --- UI LAYOUT ---
-st.title("🇬🇧 UK History & Future Researcher")
-st.write("Explore British history from 3000 BCE or peek into the speculative future beyond 2026.")
+st.title("🇬🇧 UK History Research Tool")
+st.write("Explore British history from 3000 BCE to 2026.")
 
 if 'target_year' not in st.session_state:
     st.session_state['target_year'] = 2024
